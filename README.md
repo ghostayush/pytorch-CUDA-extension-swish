@@ -115,26 +115,7 @@ Test coverage:
 - `torch.autograd.gradcheck` for Swish, Mish, and FusedBiasSwish (tests `grad_x` and `grad_bias`)
 - Full training loop: MLP with our Swish converges identically to `nn.SiLU`
 - Gradient flows to both weight matrix and fused bias
-
----
-
-## Interview Q&A
-
-**Q: Why write a custom backward when PyTorch has autograd?**  
-PyTorch's autograd records every operation and replays them in reverse. For `swish(x)`, it records `sigmoid(x)`, the multiply, and the backward through each. Our custom backward fuses these into one kernel: reads `x` once, computes `σ(x)` and `swish'(x)` in registers, writes `grad_in` once. One kernel launch instead of several, and one global memory read instead of two or three.
-
-**Q: What is `save_for_backward` and why do you call it?**  
-`ctx.save_for_backward(x)` stores the tensor `x` so the backward function can access it via `ctx.saved_tensors`. PyTorch handles the memory management — if the tensor is not needed during forward (no intermediate graph computation), it gets freed after the backward. It also prevents version counter mismatches if `x` is modified in-place after the forward call.
-
-**Q: What does `torch.autograd.gradcheck` do?**  
-It estimates numerical gradients using finite differences — computing `(f(x + ε) - f(x - ε)) / (2ε)` for each element — and compares them to the analytical gradients from our `backward()` function. If they match within tolerance, the backward formula is correct. It requires `float64` inputs for numerical precision. This is the standard way PyTorch itself tests all operator gradients.
-
-**Q: Why use `atomicAdd` for `grad_bias`?**  
-Multiple threads compute the contribution of the same bias channel `c` — specifically, every element in position `[*, c]` in the batch contributes to `grad_bias[c]`. Without `atomicAdd`, these writes would race and overwrite each other. `atomicAdd` serialises them correctly. For large `N/C` ratios, a two-phase reduction (partial sums into shared mem, then one atomic per block) would be faster.
-
-**Q: What is `AT_DISPATCH_FLOATING_TYPES_AND_HALF`?**  
-A PyTorch macro that generates code for both `float32` and `float16` by instantiating the templated kernel for each type at compile time. Without it you'd need separate kernel functions for each dtype. The `AND_HALF` variant adds `float16` support on top of the base `AT_DISPATCH_FLOATING_TYPES` (which only covers `float32` and `float64`).
-
+  
 ---
 
 ## Files
